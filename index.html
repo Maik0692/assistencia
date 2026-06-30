@@ -206,7 +206,7 @@ canvas.addEventListener("touchend",stop);
 
 function limparAssinatura(){ ctx.clearRect(0,0,canvas.width,canvas.height); }
 
-// Processamento de Imagens e Redução de Tamanho
+// Processamento de Imagens e Armazenamento Temporário
 function previewImagens(input) {
     const files = input.files;
     if (files) {
@@ -229,8 +229,10 @@ function previewImagens(input) {
                     const dataUrl = canvasResize.toDataURL('image/jpeg', 0.7); 
                     fotosBase64.push(dataUrl);
                     renderizarFotos();
-                    // Salva na máquina do técnico para o PDF posterior
-                    localStorage.setItem("fotos_temp", JSON.stringify(fotosBase64));
+                    
+                    // Salva as fotos no navegador do técnico associadas a esse cliente
+                    const clienteNome = document.getElementById("cliente").value || "temp";
+                    localStorage.setItem("fotos_" + clienteNome, JSON.stringify(fotosBase64));
                 };
                 img.src = e.target.result;
             };
@@ -249,37 +251,58 @@ function renderizarFotos() {
     });
 }
 
-// CAPTURA DOS PARÂMETROS DA URL (MÓDULOS DE FLUXO)
+// FLUXO DE TELAS INTELIGENTE
 const urlParams = new URLSearchParams(window.location.search);
 const modo = urlParams.get("modo");
 const dadosParam = urlParams.get("dados");
 
 if (modo === "cliente" && dadosParam) {
-    // VISÃO EXCLUSIVA DO CLIENTE
+    // VISÃO DO CLIENTE
     document.getElementById("titulo-tela").innerText = "Validar Check-list do Aparelho";
     document.getElementById("area-foto-upload").style.display = "none";
     document.getElementById("area-assinatura").style.display = "block";
     document.getElementById("btn-confirmar-assinatura").style.display = "inline-block";
     bloquearCampos(true);
     carregarDados(dadosParam);
-} else if (modo === "tecnico_final" && dadosParam) {
-    // TÉCNICO RECEBENDO RETORNO DA OS ASSINADA
-    document.getElementById("titulo-tela").innerText = "Ordem de Serviço Confirmada";
-    document.getElementById("area-foto-upload").style.display = "none";
-    document.getElementById("area-assinatura").style.display = "block";
-    document.getElementById("btn-limpar-assinatura").style.display = "none";
-    document.getElementById("btn-pdf").style.display = "inline-block";
-    document.getElementById("btn-nova-os").style.display = "inline-block";
-    bloquearCampos(true);
     
-    const fotosSalvas = localStorage.getItem("fotos_temp");
-    if(fotosSalvas) fotosBase64 = JSON.parse(fotosSalvas);
-    
-    carregarDados(dadosParam, true);
+    // Se o cliente já tiver assinado anteriormente neste aparelho, carrega ela
+    const clienteNome = document.getElementById("cliente").value;
+    const assinaturaSalva = localStorage.getItem("assinatura_" + clienteNome);
+    if(assinaturaSalva) {
+        const img = new Image();
+        img.onload = function() { ctx.drawImage(img, 0, 0); };
+        img.src = assinaturaSalva;
+    }
 } else {
-    // MODO TÉCNICO - NOVA OS
-    localStorage.removeItem("fotos_temp"); 
-    document.getElementById("btn-enviar-cliente").style.display = "inline-block";
+    // MODO TÉCNICO (INICIAL OU RETORNO)
+    if (dadosParam) {
+        carregarDados(dadosParam);
+        const clienteNome = document.getElementById("cliente").value;
+        
+        // Recupera as fotos e a assinatura salvas localmente
+        const fotosSalvas = localStorage.getItem("fotos_" + clienteNome);
+        if(fotosSalvas) fotosBase64 = JSON.parse(fotosSalvas);
+        renderizarFotos();
+        
+        const assinaturaSalva = localStorage.getItem("assinatura_" + clienteNome);
+        if(assinaturaSalva) {
+            document.getElementById("titulo-tela").innerText = "Ordem de Serviço Assinada";
+            document.getElementById("area-assinatura").style.display = "block";
+            document.getElementById("btn-limpar-assinatura").style.display = "none";
+            document.getElementById("btn-pdf").style.display = "inline-block";
+            document.getElementById("btn-nova-os").style.display = "inline-block";
+            bloquearCampos(true);
+            
+            const img = new Image();
+            img.onload = function() { ctx.drawImage(img, 0, 0); };
+            img.src = assinaturaSalva;
+        } else {
+            // Se o link foi aberto mas ainda não tem assinatura
+            document.getElementById("btn-enviar-cliente").style.display = "inline-block";
+        }
+    } else {
+        document.getElementById("btn-enviar-cliente").style.display = "inline-block";
+    }
 }
 
 function bloquearCampos(status) {
@@ -306,7 +329,7 @@ function obterDadosForm() {
     };
 }
 
-function carregarDados(stringBase64, carregarAssinatura = false) {
+function carregarDados(stringBase64) {
     try {
         const dados = JSON.parse(decodeURIComponent(escape(atob(stringBase64))));
         document.getElementById("cliente").value = dados.cliente;
@@ -316,27 +339,20 @@ function carregarDados(stringBase64, carregarAssinatura = false) {
         document.getElementById("defeito").value = dados.defeito;
         document.getElementById("obs").value = dados.observacoes;
         
-        renderizarFotos();
-
         Object.keys(dados.checklist).forEach(key => {
             document.getElementById(key).checked = dados.checklist[key];
         });
-
-        if (carregarAssinatura && dados.assinatura) {
-            const img = new Image();
-            img.onload = function() { ctx.drawImage(img, 0, 0); };
-            img.src = dados.assinatura;
-        }
     } catch(e) {
-        alert("Erro ao processar dados recebidos.");
+        alert("Erro ao processar dados.");
     }
 }
 
-// ENVIO FORMATADO E CORRIGIDO PARA O WHATSAPP
+// DISPAROS CURTOS DO WHATSAPP
 function enviarParaCliente() {
     const dados = obterDadosForm();
     if(!dados.telefone || !dados.cliente) return alert("Por favor, informe pelo menos o Nome e Telefone.");
     
+    // Link ultra curto sem imagens e sem assinatura
     const stringDados = btoa(unescape(encodeURIComponent(JSON.stringify(dados))));
     const urlCliente = window.location.href.split('?')[0] + `?modo=cliente&dados=${stringDados}`;
     
@@ -344,15 +360,12 @@ function enviarParaCliente() {
                        `Aqui está o check-list de entrada do seu aparelho.\n\n` +
                        `👉 *CLIQUE NO LINK ABAIXO PARA ASSINAR*:\n` +
                        `${urlCliente}\n\n` +
-                       `_Nota: Se o link não estiver azul, adicione nosso número ou responda com um "Ok" para liberar._`;
+                       `_Nota: Se o link não estiver azul, adicione nosso número ou responda com "Ok"._`;
 
     let numero = dados.telefone.replace(/\D/g,'');
-    if (numero.length === 10 || numero.length === 11) {
-        numero = "55" + numero;
-    }
+    if (numero.length === 10 || numero.length === 11) numero = "55" + numero;
     
-    const urlLinkWhats = `https://api.whatsapp.com/send?phone=${numero}&text=${encodeURIComponent(textoWhats)}`;
-    window.open(urlLinkWhats, "_blank");
+    window.open(`https://api.whatsapp.com/send?phone=${numero}&text=${encodeURIComponent(textoWhats)}`, "_blank");
 }
 
 function clienteConfirmarAssinatura() {
@@ -360,24 +373,24 @@ function clienteConfirmarAssinatura() {
     blank.width = canvas.width; blank.height = canvas.height;
     if (canvas.toDataURL() === blank.toDataURL()) return alert("Por favor, assine a tela antes de confirmar.");
 
-    const dados = obterDadosForm();
-    dados.assinatura = canvas.toDataURL("image/png"); 
+    const clienteNome = document.getElementById("cliente").value;
     
-    const stringDados = btoa(unescape(encodeURIComponent(JSON.stringify(dados))));
-    const urlTecnico = window.location.href.split('?')[0] + `?modo=tecnico_final&dados=${stringDados}`;
+    // Salva a assinatura localmente de forma segura
+    localStorage.setItem("assinatura_" + clienteNome, canvas.toDataURL("image/png"));
     
-    const textoWhats = `Prezado Técnico, acabei de conferir o check-list e realizar a assinatura digital. Segue o link de retorno:\n\n${urlTecnico}`;
+    const textoWhats = `Prezado Técnico, acabei de conferir o check-list e realizar a assinatura digital do documento no sistema! Você já pode gerar o meu PDF.`;
     
+    // Abre o WhatsApp para o técnico sem links gigantes quebrados
     window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(textoWhats)}`, "_blank");
 }
 
-// GERADOR DO DOCUMENTO EM PDF
+// GERADOR DO PDF
 function gerarPDF(){
     const { jsPDF } = window.jspdf;
     const pdf = new jsPDF();
 
     pdf.setFontSize(18);
-    pdf.text("ORDEM DE SERVIÇO", 20, 20);
+    pdf.text("ORDEM DE SERVIÇO ASSINADA", 20, 20);
 
     pdf.setFontSize(11);
     pdf.text(`Cliente: ${document.getElementById("cliente").value}`, 20, 35);
