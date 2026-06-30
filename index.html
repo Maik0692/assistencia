@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ordem de Serviço - Assistência Técnica</title>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+<style>
+*{
+    box-sizing:border-box;
+    font-family:Arial,sans-serif;
+}
+
+body{
+    margin:0;
+    background:#f2f2f2;
+}
+
+.container{
+    max-width:1000px;
+    margin:auto;
+    padding:20px;
+}
+
+.card{
+    background:#fff;
+    padding:20px;
+    border-radius:10px;
+    margin-bottom:20px;
+    box-shadow:0 2px 10px rgba(0,0,0,.1);
+}
+
+h1,h2{
+    margin-top:0;
+}
+
+.grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(250px,1fr));
+    gap:10px;
+}
+
+input,textarea{
+    width:100%;
+    padding:10px;
+    border:1px solid #ccc;
+    border-radius:5px;
+}
+
+textarea{
+    resize:vertical;
+}
+
+button{
+    padding:12px;
+    border:none;
+    border-radius:5px;
+    background:#0d6efd;
+    color:#fff;
+    cursor:pointer;
+    margin-top:10px;
+    font-weight: bold;
+}
+
+button:hover{
+    opacity:.9;
+}
+
+.btn-success { background: #198754; }
+.btn-danger { background: #dc3545; }
+.btn-secondary { background: #6c757d; }
+
+.checks{
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+    gap:10px;
+}
+
+.check{
+    background:#f7f7f7;
+    padding:10px;
+    border-radius:5px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+canvas{
+    width:100%;
+    max-width:500px;
+    height:180px;
+    border:2px solid #000;
+    background:#fff;
+    touch-action:none;
+}
+
+.preview-fotos {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 10px;
+}
+
+.preview-fotos img {
+    width: 100px;
+    height: 100px;
+    object-fit: cover;
+    border-radius: 5px;
+    border: 1px solid #ccc;
+}
+
+#area-assinatura, #btn-pdf, #btn-enviar-cliente, #btn-confirmar-assinatura {
+    display: none;
+}
+
+@media(max-width:600px){
+    button{
+        width:100%;
+    }
+}
+</style>
+</head>
+<body>
+
+<div class="container">
+
+<div class="card">
+<h1 id="titulo-tela">Nova Ordem de Serviço</h1>
+
+<div class="grid">
+<input id="cliente" placeholder="Nome do cliente">
+<input id="telefone" placeholder="Telefone com DDD (ex: 11999999999)">
+<input id="aparelho" placeholder="Modelo do aparelho">
+<input id="senha" placeholder="Senha do aparelho">
+</div>
+
+<br>
+<textarea id="defeito" placeholder="Defeito relatado"></textarea>
+
+<br><br>
+
+<div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
+    <h2>Checklist</h2>
+    <div id="area-foto-upload">
+        <input type="file" id="foto-input" accept="image/*" multiple style="display:none" onchange="previewImagens(this)">
+        <button type="button" class="btn-secondary" onclick="document.getElementById('foto-input').click()">📸 Adicionar Foto</button>
+    </div>
+</div>
+
+<div class="preview-fotos" id="fotosContainer"></div>
+<br>
+
+<div class="checks">
+<label class="check"><input type="checkbox" id="tela"> Tela quebrada</label>
+<label class="check"><input type="checkbox" id="tampa"> Tampa quebrada</label>
+<label class="check"><input type="checkbox" id="camera"> Câmera com defeito</label>
+<label class="check"><input type="checkbox" id="bateria"> Problema na bateria</label>
+<label class="check"><input type="checkbox" id="molhado"> Oxidação / Molhado</label>
+<label class="check"><input type="checkbox" id="liga"> Não liga</label>
+</div>
+
+<br>
+<textarea id="obs" placeholder="Observações"></textarea>
+
+<button id="btn-enviar-cliente" class="btn-success" onclick="enviarParaCliente()">Preencher e Enviar via WhatsApp</button>
+
+<div id="area-assinatura">
+    <h2>Assinatura do Cliente</h2>
+    <canvas id="assinatura" width="500" height="180"></canvas>
+    <br>
+    <button id="btn-limpar-assinatura" class="btn-danger" onclick="limparAssinatura()">Limpar Assinatura</button>
+    <button id="btn-confirmar-assinatura" class="btn-success" onclick="clienteConfirmarAssinatura()">Confirmar Assinatura e Enviar ao Técnico</button>
+</div>
+
+<button id="btn-pdf" class="btn-success" onclick="gerarPDF()">Gerar PDF da OS</button>
+<button id="btn-nova-os" class="btn-secondary" onclick="window.location.href=window.location.pathname" style="display:none;">Nova OS</button>
+
+</div>
+</div>
+
+<script>
+const canvas = document.getElementById("assinatura");
+const ctx = canvas.getContext("2d");
+let desenhando = false;
+let fotosBase64 = [];
+
+// Configurações de desenho do Canvas
+function pos(e){
+    const r = canvas.getBoundingClientRect();
+    if(e.touches) return { x:e.touches[0].clientX-r.left, y:e.touches[0].clientY-r.top };
+    return { x:e.clientX-r.left, y:e.clientY-r.top };
+}
+function start(e){ desenhando = true; const p = pos(e); ctx.beginPath(); ctx.moveTo(p.x,p.y); }
+function draw(e){ if(!desenhando) return; e.preventDefault(); const p = pos(e); ctx.lineTo(p.x,p.y); ctx.stroke(); }
+function stop(){ desenhando = false; }
+
+canvas.addEventListener("mousedown",start);
+canvas.addEventListener("mousemove",draw);
+canvas.addEventListener("mouseup",stop);
+canvas.addEventListener("mouseleave",stop);
+canvas.addEventListener("touchstart",start);
+canvas.addEventListener("touchmove",draw);
+canvas.addEventListener("touchend",stop);
+
+function limparAssinatura(){ ctx.clearRect(0,0,canvas.width,canvas.height); }
+
+// Processamento de Imagens e Redução de Tamanho
+function previewImagens(input) {
+    const files = input.files;
+    if (files) {
+        Array.from(files).forEach(file => {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const img = new Image();
+                img.onload = function() {
+                    const canvasResize = document.createElement('canvas');
+                    const max_size = 600; 
+                    let width = img.width;
+                    let height = img.height;
+                    if (width > height) { if (width > max_size) { height *= max_size / width; width = max_size; } }
+                    else { if (height > max_size) { width *= max_size / height; height = max_size; } }
+                    canvasResize.width = width;
+                    canvasResize.height = height;
+                    const ctxResize = canvasResize.getContext('2d');
+                    ctxResize.drawImage(img, 0, 0, width, height);
+                    
+                    const dataUrl = canvasResize.toDataURL('image/jpeg', 0.7); 
+                    fotosBase64.push(dataUrl);
+                    renderizarFotos();
+                    // Salva na máquina do técnico para o PDF posterior
+                    localStorage.setItem("fotos_temp", JSON.stringify(fotosBase64));
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        });
+    }
+}
+
+function renderizarFotos() {
+    const container = document.getElementById("fotosContainer");
+    container.innerHTML = "";
+    fotosBase64.forEach(src => {
+        const img = document.createElement("img");
+        img.src = src;
+        container.appendChild(img);
+    });
+}
+
+// CAPTURA DOS PARÂMETROS DA URL (MÓDULOS DE FLUXO)
+const urlParams = new URLSearchParams(window.location.search);
+const modo = urlParams.get("modo");
+const dadosParam = urlParams.get("dados");
+
+if (modo === "cliente" && dadosParam) {
+    // VISÃO EXCLUSIVA DO CLIENTE
+    document.getElementById("titulo-tela").innerText = "Validar Check-list do Aparelho";
+    document.getElementById("area-foto-upload").style.display = "none";
+    document.getElementById("area-assinatura").style.display = "block";
+    document.getElementById("btn-confirmar-assinatura").style.display = "inline-block";
+    bloquearCampos(true);
+    carregarDados(dadosParam);
+} else if (modo === "tecnico_final" && dadosParam) {
+    // TÉCNICO RECEBENDO RETORNO DA OS ASSINADA
+    document.getElementById("titulo-tela").innerText = "Ordem de Serviço Confirmada";
+    document.getElementById("area-foto-upload").style.display = "none";
+    document.getElementById("area-assinatura").style.display = "block";
+    document.getElementById("btn-limpar-assinatura").style.display = "none";
+    document.getElementById("btn-pdf").style.display = "inline-block";
+    document.getElementById("btn-nova-os").style.display = "inline-block";
+    bloquearCampos(true);
+    
+    const fotosSalvas = localStorage.getItem("fotos_temp");
+    if(fotosSalvas) fotosBase64 = JSON.parse(fotosSalvas);
+    
+    carregarDados(dadosParam, true);
+} else {
+    // MODO TÉCNICO - NOVA OS
+    localStorage.removeItem("fotos_temp"); 
+    document.getElementById("btn-enviar-cliente").style.display = "inline-block";
+}
+
+function bloquearCampos(status) {
+    const inputs = document.querySelectorAll("input, textarea");
+    inputs.forEach(el => { if(el.id !== "foto-input") el.disabled = status; });
+}
+
+function obterDadosForm() {
+    return {
+        cliente: document.getElementById("cliente").value,
+        telefone: document.getElementById("telefone").value,
+        aparelho: document.getElementById("aparelho").value,
+        senha: document.getElementById("senha").value,
+        defeito: document.getElementById("defeito").value,
+        observacoes: document.getElementById("obs").value,
+        checklist: {
+            tela: document.getElementById("tela").checked,
+            tampa: document.getElementById("tampa").checked,
+            camera: document.getElementById("camera").checked,
+            bateria: document.getElementById("bateria").checked,
+            molhado: document.getElementById("molhado").checked,
+            liga: document.getElementById("liga").checked
+        }
+    };
+}
+
+function carregarDados(stringBase64, carregarAssinatura = false) {
+    try {
+        const dados = JSON.parse(decodeURIComponent(escape(atob(stringBase64))));
+        document.getElementById("cliente").value = dados.cliente;
+        document.getElementById("telefone").value = dados.telefone;
+        document.getElementById("aparelho").value = dados.aparelho;
+        document.getElementById("senha").value = dados.senha;
+        document.getElementById("defeito").value = dados.defeito;
+        document.getElementById("obs").value = dados.observacoes;
+        
+        renderizarFotos();
+
+        Object.keys(dados.checklist).forEach(key => {
+            document.getElementById(key).checked = dados.checklist[key];
+        });
+
+        if (carregarAssinatura && dados.assinatura) {
+            const img = new Image();
+            img.onload = function() { ctx.drawImage(img, 0, 0); };
+            img.src = dados.assinatura;
+        }
+    } catch(e) {
+        alert("Erro ao processar dados recebidos.");
+    }
+}
+
+// ENVIO FORMATADO E CORRIGIDO PARA O WHATSAPP
+function enviarParaCliente() {
+    const dados = obterDadosForm();
+    if(!dados.telefone || !dados.cliente) return alert("Por favor, informe pelo menos o Nome e Telefone.");
+    
+    const stringDados = btoa(unescape(encodeURIComponent(JSON.stringify(dados))));
+    const urlCliente = window.location.href.split('?')[0] + `?modo=cliente&dados=${stringDados}`;
+    
+    const textoWhats = `Olá *${dados.cliente}*!\n\n` +
+                       `Aqui está o check-list de entrada do seu aparelho.\n\n` +
+                       `👉 *CLIQUE NO LINK ABAIXO PARA ASSINAR*:\n` +
+                       `${urlCliente}\n\n` +
+                       `_Nota: Se o link não estiver azul, adicione nosso número ou responda com um "Ok" para liberar._`;
+
+    let numero = dados.telefone.replace(/\D/g,'');
+    if (numero.length === 10 || numero.length === 11) {
+        numero = "55" + numero;
+    }
+    
+    const urlLinkWhats = `https://api.whatsapp.com/send?phone=${numero}&text=${encodeURIComponent(textoWhats)}`;
+    window.open(urlLinkWhats, "_blank");
+}
+
+function clienteConfirmarAssinatura() {
+    const blank = document.createElement('canvas');
+    blank.width = canvas.width; blank.height = canvas.height;
+    if (canvas.toDataURL() === blank.toDataURL()) return alert("Por favor, assine a tela antes de confirmar.");
+
+    const dados = obterDadosForm();
+    dados.assinatura = canvas.toDataURL("image/png"); 
+    
+    const stringDados = btoa(unescape(encodeURIComponent(JSON.stringify(dados))));
+    const urlTecnico = window.location.href.split('?')[0] + `?modo=tecnico_final&dados=${stringDados}`;
+    
+    const textoWhats = `Prezado Técnico, acabei de conferir o check-list e realizar a assinatura digital. Segue o link de retorno:\n\n${urlTecnico}`;
+    
+    window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(textoWhats)}`, "_blank");
+}
+
+// GERADOR DO DOCUMENTO EM PDF
+function gerarPDF(){
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF();
+
+    pdf.setFontSize(18);
+    pdf.text("ORDEM DE SERVIÇO", 20, 20);
+
+    pdf.setFontSize(11);
+    pdf.text(`Cliente: ${document.getElementById("cliente").value}`, 20, 35);
+    pdf.text(`Telefone: ${document.getElementById("telefone").value}`, 20, 43);
+    pdf.text(`Aparelho: ${document.getElementById("aparelho").value}`, 20, 51);
+    pdf.text(`Senha: ${document.getElementById("senha").value}`, 20, 59);
+    
+    pdf.setFont("Helvetica", "bold");
+    pdf.text("Defeito Relatado:", 20, 72);
+    pdf.setFont("Helvetica", "normal");
+    pdf.text(document.getElementById("defeito").value || "-", 20, 80);
+
+    pdf.setFont("Helvetica", "bold");
+    pdf.text("Checklist de Recebimento:", 20, 95);
+    pdf.setFont("Helvetica", "normal");
+    
+    let checkY = 103;
+    const checks = ["tela", "tampa", "camera", "bateria", "molhado", "liga"];
+    checks.forEach(id => {
+        const el = document.getElementById(id);
+        const status = el.checked ? "[X]" : "[ ]";
+        const texto = el.parentElement.innerText;
+        pdf.text(`${status} ${texto}`, 20, checkY);
+        checkY += 7;
+    });
+
+    const assinaturaImg = canvas.toDataURL("image/png");
+    pdf.addImage(assinaturaImg, "PNG", 20, checkY + 10, 65, 22);
+    pdf.text("_________________________________________", 20, checkY + 38);
+    pdf.text("Assinatura Digital do Cliente", 20, checkY + 44);
+
+    if (fotosBase64.length > 0) {
+        pdf.addPage();
+        pdf.setFontSize(14);
+        pdf.text("Anexo Fotográfico (Situação de Entrada)", 20, 20);
+        let fotoX = 20;
+        let fotoY = 32;
+        
+        fotosBase64.forEach((foto, idx) => {
+            if (idx > 0 && idx % 2 === 0) {
+                fotoX = 20;
+                fotoY += 65;
+            }
+            pdf.addImage(foto, "JPEG", fotoX, fotoY, 60, 55);
+            fotoX += 70;
+        });
+    }
+
+    pdf.save(`OS_${document.getElementById("cliente").value}.pdf`);
+}
+</script>
+
+</body>
+</html>
